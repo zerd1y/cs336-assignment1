@@ -1,50 +1,93 @@
-# CS336 Spring 2025 Assignment 1: Basics
+# LLM Basics
+Implementation of basic LLM modules.
 
-For a full description of the assignment, see the assignment handout at
-[cs336_assignment1_basics.pdf](./cs336_assignment1_basics.pdf)
+## TinyStories Experiment Pipeline
 
-If you see any issues with the assignment handout or code, please feel free to
-raise a GitHub issue or open a pull request with a fix.
+This repository now includes a local-first TinyStories experiment pipeline that covers:
 
-## Setup
+- byte-level BPE training with `<|endoftext|>` as a hard document boundary
+- multiprocessing pre-token counting for faster tokenizer training
+- `uint16` serialization for `train.bin` and `val.bin`
+- `np.memmap`-backed training data loading
+- decoder-only Transformer training with RoPE, RMSNorm, and SwiGLU
+- checkpoint save / resume
+- text generation with temperature and top-p sampling
 
-### Environment
-We manage our environments with `uv` to ensure reproducibility, portability, and ease of use.
-Install `uv` [here](https://github.com/astral-sh/uv#installation) (recommended), or run `pip install uv`/`brew install uv`.
-We recommend reading a bit about managing projects in `uv` [here](https://docs.astral.sh/uv/guides/projects/#managing-dependencies) (you will not regret it!).
+### 1. Preprocess TinyStories
 
-You can now run any code in the repo using
-```sh
-uv run <python_file_path>
-```
-and the environment will be automatically solved and activated when necessary.
-
-### Run unit tests
-
-
-```sh
-uv run pytest
+```bash
+python -m llm_basics.tinystories preprocess \
+  --corpus-path /path/to/TinyStoriesV2-GPT4-train.txt \
+  --dev-corpus-path /path/to/TinyStoriesV2-GPT4-valid.txt \
+  --output-dir /path/to/tinystories_data \
+  --vocab-size 10000 \
+  --num-workers 8
 ```
 
-Initially, all tests should fail with `NotImplementedError`s.
-To connect your implementation to the tests, complete the
-functions in [./tests/adapters.py](./tests/adapters.py).
+This writes:
 
-### Download data
-Download the TinyStories data and a subsample of OpenWebText
+- `tokenizer.json`
+- `train.bin`
+- `val.bin`
+- `preprocess_metadata.json`
 
-``` sh
-mkdir -p data
-cd data
+If you do not have a separate development file, omit `--dev-corpus-path` and the script will
+fall back to splitting the training corpus with `--val-fraction`.
 
-wget https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-train.txt
-wget https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-valid.txt
+### 2. Train the Language Model
 
-wget https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main/owt_train.txt.gz
-gunzip owt_train.txt.gz
-wget https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main/owt_valid.txt.gz
-gunzip owt_valid.txt.gz
-
-cd ..
+```bash
+python -m llm_basics.tinystories train \
+  --data-dir /path/to/tinystories_data \
+  --output-dir /path/to/tinystories_runs/base \
+  --batch-size 32 \
+  --total-tokens 327680000 \
+  --device cuda
 ```
 
+Default model configuration matches the requested setup:
+
+- `vocab_size=10000`
+- `context_length=256`
+- `d_model=512`
+- `d_ff=1344`
+- `num_layers=4`
+- `num_heads=16`
+- `rope_theta=10000`
+
+Training writes:
+
+- `checkpoint.pt`
+- `metrics.jsonl`
+- `train_config.json`
+
+### 3. Resume Training
+
+```bash
+python -m llm_basics.tinystories train \
+  --data-dir /path/to/tinystories_data \
+  --output-dir /path/to/tinystories_runs/base \
+  --batch-size 32 \
+  --total-tokens 327680000 \
+  --device cuda \
+  --resume-from /path/to/tinystories_runs/base/checkpoint.pt
+```
+
+### 4. Generate Text
+
+```bash
+python -m llm_basics.tinystories generate \
+  --checkpoint-path /path/to/tinystories_runs/base/checkpoint.pt \
+  --tokenizer-path /path/to/tinystories_data/tokenizer.json \
+  --prompt "Once upon a time" \
+  --output-path /path/to/tinystories_runs/base/sample.txt \
+  --max-new-tokens 256 \
+  --temperature 0.9 \
+  --top-p 0.95 \
+  --device cuda
+```
+
+This writes:
+
+- generated text to `sample.txt`
+- a short qualitative summary to `sample.json`
