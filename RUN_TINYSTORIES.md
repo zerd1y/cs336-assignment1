@@ -1,61 +1,46 @@
 # TinyStories Server Runbook
 
-这份清单假设你已经把当前仓库完整上传到服务器，并且 TinyStories 原始文本文件也已经放好。
+This repository already contains the TinyStories experiment code you need. The pipeline is:
 
-## 0. 环境准备
+1. preprocess text into `tokenizer.json`, `train.bin`, and `val.bin`
+2. train the language model
+3. generate a sample text from the trained checkpoint
+
+## Manual commands
+
+### 0. Install dependencies
 
 ```bash
-cd /path/to/assignment1
+cd /assignment1
 uv sync
 ```
 
-如果服务器不用 `uv`，也可以直接用现有虚拟环境等价安装依赖。
+### 1. Preprocess data
 
-## 1. 预处理数据
-
-原始语料假设为单文件，并且文档之间由 `<|endoftext|>` 分隔。
+If you already have plain-text train and validation files separated by `<|endoftext|>`, run:
 
 ```bash
 python -m llm_basics.tinystories preprocess \
-  --corpus-path /path/to/TinyStoriesV2-GPT4-train.txt \
-  --dev-corpus-path /path/to/TinyStoriesV2-GPT4-valid.txt \
-  --output-dir /path/to/outputs/tinystories_data \
+  --corpus-path /root/autodl-tmp/TinyStories/TinyStories-train.txt \
+  --dev-corpus-path /root/autodl-tmp/TinyStories/TinyStories-valid.txt \
+  --output-dir /root/autodl-tmp/tinystories_data \
   --vocab-size 10000 \
   --num-workers 8
 ```
 
-预处理产物：
+Outputs:
 
-- `/path/to/outputs/tinystories_data/tokenizer.json`
-- `/path/to/outputs/tinystories_data/train.bin`
-- `/path/to/outputs/tinystories_data/val.bin`
-- `/path/to/outputs/tinystories_data/preprocess_metadata.json`
+- `/root/autodl-tmp/tinystories_data/tokenizer.json`
+- `/root/autodl-tmp/tinystories_data/train.bin`
+- `/root/autodl-tmp/tinystories_data/val.bin`
+- `/root/autodl-tmp/tinystories_data/preprocess_metadata.json`
 
-如果你只有训练集单文件，没有单独的开发集文件，可以去掉 `--dev-corpus-path`，
-此时脚本会按 `--val-fraction` 从训练集内部切出验证集。
-
-## 2. 训练模型
-
-下面这条命令使用你要求的默认结构：
-
-- `vocab_size=10000`
-- `context_length=256`
-- `d_model=512`
-- `d_ff=1344`
-- `num_layers=4`
-- `num_heads=16`
-- `rope_theta=10000`
-
-同时总 token 数默认为 `327680000`，对应：
-
-- `batch_size=32`
-- `context_length=256`
-- `total_steps=40000`
+### 2. Train model
 
 ```bash
 python -m llm_basics.tinystories train \
-  --data-dir /path/to/outputs/tinystories_data \
-  --output-dir /path/to/outputs/tinystories_run \
+  --data-dir /root/autodl-tmp/tinystories_data \
+  --output-dir /root/autodl-tmp/tinystories_run \
   --batch-size 32 \
   --total-tokens 327680000 \
   --learning-rate 3e-4 \
@@ -70,85 +55,80 @@ python -m llm_basics.tinystories train \
   --device cuda
 ```
 
-训练产物：
+Outputs:
 
-- `/path/to/outputs/tinystories_run/checkpoint.pt`
-- `/path/to/outputs/tinystories_run/metrics.jsonl`
-- `/path/to/outputs/tinystories_run/train_config.json`
+- `/root/autodl-tmp/tinystories_run/checkpoint.pt`
+- `/root/autodl-tmp/tinystories_run/metrics.jsonl`
+- `/root/autodl-tmp/tinystories_run/train_config.json`
 
-## 3. 断点续训
+### 3. Resume training
 
 ```bash
 python -m llm_basics.tinystories train \
-  --data-dir /path/to/outputs/tinystories_data \
-  --output-dir /path/to/outputs/tinystories_run \
+  --data-dir /root/autodl-tmp/tinystories_data \
+  --output-dir /root/autodl-tmp/tinystories_run \
   --batch-size 32 \
   --total-tokens 327680000 \
   --device cuda \
-  --resume-from /path/to/outputs/tinystories_run/checkpoint.pt
+  --resume-from /root/autodl-tmp/tinystories_run/checkpoint.pt
 ```
 
-## 4. 生成至少 256 个 token
+### 4. Generate text
 
 ```bash
 python -m llm_basics.tinystories generate \
-  --checkpoint-path /path/to/outputs/tinystories_run/checkpoint.pt \
-  --tokenizer-path /path/to/outputs/tinystories_data/tokenizer.json \
-  --prompt "Once upon a time, a little rabbit found a blue door in the forest." \
-  --output-path /path/to/outputs/tinystories_run/sample_t09_p095.txt \
+  --checkpoint-path /root/autodl-tmp/tinystories_run/checkpoint.pt \
+  --tokenizer-path /root/autodl-tmp/tinystories_data/tokenizer.json \
+  --prompt "Once upon a time, a little girl found a secret in the forest." \
+  --output-path /root/autodl-tmp/tinystories_run/sample.txt \
   --max-new-tokens 256 \
   --temperature 0.9 \
   --top-p 0.95 \
   --device cuda
 ```
 
-生成产物：
+Outputs:
 
-- `/path/to/outputs/tinystories_run/sample_t09_p095.txt`
-- `/path/to/outputs/tinystories_run/sample_t09_p095.json`
+- `/root/autodl-tmp/tinystories_run/sample.txt`
+- `/root/autodl-tmp/tinystories_run/sample.json`
 
-其中 `.json` 会带一段可直接拿来写实验报告的定性点评草稿。
+## AutoDL one-command script
 
-## 5. 建议至少补两组对照生成
+For AutoDL, the repository also includes:
 
-更稳：
+- `/assignment1/run_tinystories_autodl.sh`
 
-```bash
-python -m llm_basics.tinystories generate \
-  --checkpoint-path /path/to/outputs/tinystories_run/checkpoint.pt \
-  --tokenizer-path /path/to/outputs/tinystories_data/tokenizer.json \
-  --prompt "Once upon a time, a little rabbit found a blue door in the forest." \
-  --output-path /path/to/outputs/tinystories_run/sample_t07_p09.txt \
-  --max-new-tokens 256 \
-  --temperature 0.7 \
-  --top-p 0.90 \
-  --device cuda
-```
+This script runs the full pipeline in order:
 
-更自由：
+1. preprocess
+2. train
+3. generate
+4. shut down the server on success
+
+Run it with:
 
 ```bash
-python -m llm_basics.tinystories generate \
-  --checkpoint-path /path/to/outputs/tinystories_run/checkpoint.pt \
-  --tokenizer-path /path/to/outputs/tinystories_data/tokenizer.json \
-  --prompt "Once upon a time, a little rabbit found a blue door in the forest." \
-  --output-path /path/to/outputs/tinystories_run/sample_t11_p098.txt \
-  --max-new-tokens 256 \
-  --temperature 1.1 \
-  --top-p 0.98 \
-  --device cuda
+cd /assignment1
+bash run_tinystories_autodl.sh
 ```
 
-## 6. 你最终需要带走的文件
+Disable auto shutdown for one run:
 
-- 代码：整个当前仓库
-- 训练数据产物：`tinystories_data/`
-- 训练日志与权重：`tinystories_run/`
-- 至少一份 256 token 以上生成文本
+```bash
+cd /assignment1
+AUTO_SHUTDOWN_ON_SUCCESS=0 bash run_tinystories_autodl.sh
+```
 
-## 7. 这套流程复用了哪些已有模块
+Override the prompt:
 
-为了尽量复用你原先在 `llm_basics` 里的实现，这条实验链路直接使用了：
+```bash
+cd /assignment1
+PROMPT="Once upon a time, a small fox found a lantern in the snow." bash run_tinystories_autodl.sh
+```
+
+## Reused modules
+
+The experiment pipeline reuses your existing `llm_basics` components:
 
 - `llm_basics.bpe.Tokenizer`
 - `llm_basics.transformer.TransformerLM`
@@ -158,4 +138,4 @@ python -m llm_basics.tinystories generate \
 - `llm_basics.training.save_checkpoint`
 - `llm_basics.decoder.generate`
 
-新增的 `llm_basics.tinystories` 主要只是把这些现有模块串成可直接跑实验的入口。
+The new `llm_basics.tinystories` module mainly acts as the experiment entrypoint around those components.
